@@ -1,4 +1,5 @@
 'use strict'
+require('dotenv').config();
 
 const axios = require('axios')
 const StellarSdk = require('stellar-sdk');
@@ -30,30 +31,38 @@ const generateKeyPair = () => {
 /**
  * Create an account
  *
- * @param {string}
- *
  * @return {Promise}
  */
-const createAccount = async (publicKey) => {
+const createAccount = async () => {
 
-    const response = await axios.get(`https://friendbot.stellar.org`, {
-        qs: {addr: publicKey},
-        json: true
-    })
+    try {
+        const keyPair = generateKeyPair();
+        const privateKey = keyPair.secret()
+        const publicKey = keyPair.publicKey()
 
-    return response
+        const response = await axios.get(`https://friendbot.stellar.org`, {
+            params: {
+                addr: publicKey
+            }
+        })
+
+        console.log(privateKey)
+        console.log(publicKey)
+
+        return response.data
+    } catch (err) {
+        console.error(err)
+    }
 }
 
 /**
  * Check account balance
  *
- * @param {string}
- *
  * @return {Promise}
  */
-const getBalance = async (publicKey) => {
+const getBalanceInfo = async () => {
 
-    return server.loadAccount(publicKey).then(function (account) {
+    return server.loadAccount(senderKeys.publicKey).then(function (account) {
 
         return account.balances
     });
@@ -73,41 +82,27 @@ const sendTransaction = async (receiverPublicKey) => {
 
     let transaction;
 
-    // Verify destination account exists
-    server.loadAccount(destinationId)
+    try {
+        const receiverAcc = await server.loadAccount(destinationId)
+        const senderAcc = await server.loadAccount(sourceKeys.publicKey())
 
-    // Account not found
-        .catch(StellarSdk.NotFoundError, function (error) {
-            throw new Error('The destination account does not exist!');
-        })
+        transaction = new StellarSdk.TransactionBuilder(senderAcc)
+            .addOperation(StellarSdk.Operation.payment({
+                destination: receiverAcc.public,
+                asset: StellarSdk.Asset.native(),
+                amount: "99.20"
+            }))
+            .build();
 
-        // Load account information
-        .then(function () {
-            return server.loadAccount(sourceKeys.publicKey());
-        })
+        // Sign
+        transaction.sign(sourceKeys);
 
-        .then(function (sourceAccount) {
+        // Send
+        return server.submitTransaction(transaction);
 
-            transaction = new StellarSdk.TransactionBuilder(sourceAccount)
-                .addOperation(StellarSdk.Operation.payment({
-                    destination: destinationId,
-                    asset: StellarSdk.Asset.native(),
-                    amount: "99.20"
-                }))
-                .build();
-
-            // Sign
-            transaction.sign(sourceKeys);
-
-            // Send
-            return server.submitTransaction(transaction);
-        })
-        .then(function (result) {
-            return result;
-        })
-        .catch(function (error) {
-            return error
-        });
+    } catch (err) {
+        console.error(err)
+    }
 }
 
 /**
@@ -123,14 +118,14 @@ const setOptionsForMultiSignature = async () => {
     console.log(senderAcc)
     console.log(secondSignerAcc)
 
-    let transaction = new TransactionBuilder(senderAcc)
-        .addOperation(Operation.setOptions({
+    let transaction = new StellarSdk.TransactionBuilder(senderAcc)
+        .addOperation(StellarSdk.Operation.setOptions({
             signer: {
                 ed25519PublicKey: secondSigner.publicKey,
                 weight: 1
             }
         }))
-        .addOperation(Operation.setOptions({
+        .addOperation(StellarSdk.Operation.setOptions({
             masterWeight: 1, // set master key weight
             lowThreshold: 1,
             medThreshold: 2, // a payment is medium threshold
@@ -138,7 +133,7 @@ const setOptionsForMultiSignature = async () => {
         }))
         .build()
 
-    const rootKeypair = Keypair.fromSecret(senderKeys.privateKey)
+    const rootKeypair = StellarSdk.Keypair.fromSecret(senderKeys.privateKey)
 
     transaction.sign(rootKeypair) // only need to sign with the root signer as the 2nd signer won't be added to the account till after this transaction completes
 
@@ -158,39 +153,38 @@ const setOptionsForMultiSignature = async () => {
  *
  * @return {String}
  */
-const sendMultiSignatureTransaction = async (receiverKeys) => {
-
+const sendMultiSignatureTransaction = async (receiverPublicKey) => {
     const senderAcc = await server.loadAccount(senderKeys.publicKey)
     const secondSignerAcc = await server.loadAccount(secondSigner.publicKey)
-    const receiverAcc = await server.loadAccount(receiverKeys.publicKey)
+    const receiverAcc = await server.loadAccount(receiverPublicKey)
 
-    const rootKeypair = Keypair.fromSecret(senderKeys.privateKey)
-    const secondKeypair = Keypair.fromSecret(secondSigner.privateKey)
+    const rootKeypair = StellarSdk.Keypair.fromSecret(senderKeys.privateKey)
+    const secondKeypair = StellarSdk.Keypair.fromSecret(secondSigner.privateKey)
 
-    const transaction = new TransactionBuilder(senderAcc)
-        .addOperation(Operation.payment({
-            destination: receiverKeys.publicKey,
-            asset: Asset.native(),
+    const transaction = new StellarSdk.TransactionBuilder(senderAcc)
+        .addOperation(StellarSdk.Operation.payment({
+            destination: receiverPublicKey,
+            asset: StellarSdk.Asset.native(),
             amount: "100" // 1000 XLM
         }))
         .build()
 
+    // Sign transaction
     transaction.sign(rootKeypair)
-    transaction.sign(secondKeypair)
 
-    console.log(transaction.toEnvelope().toXDR('base64'))
+    // Encode: transaction
+    const encoded = transaction.toEnvelope().toXDR('base64')
 
-    const result = await server.submitTransaction(transaction)
-
-    console.log('Result:', result)
-
-    return result
+    // Send
+    return await axios.post(`http://localhost:3001`, {
+        transaction: encoded
+    })
 }
 
 module.exports = {
     generateKeyPair,
     createAccount,
-    getBalance,
+    getBalanceInfo,
     sendTransaction,
     setOptionsForMultiSignature,
     sendMultiSignatureTransaction
