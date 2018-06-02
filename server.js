@@ -19,9 +19,13 @@ app.post('/', async (req, res, next) => {
     try {
         const secondKeypair = StellarSdk.Keypair.fromSecret(secondSigner.privateKey)
         let transaction = req.body.transaction
+        console.log(transaction)
 
-        // Decode transaction
+        // Retrieve decoded transaction envelope
         transaction = StellarSdk.xdr.TransactionEnvelope.fromXDR(transaction, 'base64')
+
+        // Create new transaction object
+        transaction = new StellarSdk.Transaction(transaction)
 
         // Sign transaction
         transaction.sign(secondKeypair)
