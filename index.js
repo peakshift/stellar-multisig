@@ -118,6 +118,7 @@ const setOptionsForMultiSignature = async () => {
     console.log(senderAcc)
     console.log(secondSignerAcc)
 
+    // Multi Sig Contract, tell stellar a second address needs to sign on this account
     let transaction = new StellarSdk.TransactionBuilder(senderAcc)
         .addOperation(StellarSdk.Operation.setOptions({
             signer: {
@@ -149,7 +150,7 @@ const setOptionsForMultiSignature = async () => {
 /**
  * Send multisignature transaction
  *
- * @param {object}
+ * @param {String}
  *
  * @return {String}
  */
@@ -173,11 +174,11 @@ const sendMultiSignatureTransaction = async (receiverPublicKey) => {
     transaction.sign(rootKeypair)
 
     // Encode: transaction
-    const encoded = transaction.toEnvelope().toXDR('base64')
-
+    const encoded = transaction
+console.log(JSON.stringify(encoded))
     // Send
     return await axios.post(`http://localhost:3001`, {
-        transaction: encoded
+        transaction: JSON.stringify(encoded)
     })
 }
 

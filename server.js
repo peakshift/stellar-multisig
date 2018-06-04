@@ -18,6 +18,7 @@ app.use(bodyParser.json()); // support json encoded bodies
 app.post('/', async (req, res, next) => {
     try {
         const secondKeypair = StellarSdk.Keypair.fromSecret(secondSigner.privateKey)
+
         let transaction = req.body.transaction
         console.log(transaction)
 
@@ -30,10 +31,7 @@ app.post('/', async (req, res, next) => {
         // Sign transaction
         transaction.sign(secondKeypair)
 
-        // Submit transaction
-        const result = await server.submitTransaction(transaction)
-
-        console.log(result)
+        // console.log(result)
         res.send(result)
     } catch (err) {
         console.error(err)
