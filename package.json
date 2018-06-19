@@ -5,9 +5,16 @@
   "main": "stellar.js",
   "scripts": {
     "server": "nodemon server.js",
+    "setup-accounts": "npm run init-account; npm run create-receiver;",
+    "notifications": "node notifications.js",
+    "stream-transactions": "node bin/stream-transactions",
+    "init-account": "node bin/init-account",
+    "socket-server": "nodemon websocket.js",
     "create-account": "node bin/create-account",
+    "create-receiver": "node bin/create-receiver",
     "establish-multisig": "node bin/establish-multisig",
-    "send-transaction": "node bin/send-transaction"
+    "send-transaction": "node bin/send-transaction",
+    "get-balance": "node bin/get-balance"
   },
   "author": "",
   "license": "ISC",
@@ -17,6 +24,12 @@
     "dotenv": "^5.0.1",
     "express": "^4.16.3",
     "nodemon": "^1.17.5",
-    "stellar-sdk": "^0.8.1"
+    "socket.io": "^2.1.1",
+    "stellar-sdk": "^0.8.1",
+    "uuid": "^3.2.1"
+  },
+  "devDependencies": {
+    "lowdb": "^1.0.0",
+    "opn": "^5.3.0"
   }
 }
