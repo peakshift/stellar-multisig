@@ -3,23 +3,42 @@ require('dotenv').config();
 
 const axios = require('axios')
 const StellarSdk = require('stellar-sdk');
+const { addUser } = require('./users')
+
 const server = new StellarSdk.Server('https://horizon-testnet.stellar.org');
-const senderKeys = {
-    privateKey: process.env.SENDER_PRIVATE_KEY,
-    publicKey: process.env.SENDER_PUBLIC_KEY
-}
-const secondSigner = {
-    privateKey: process.env.SECOND_SIGNER_PRIVATE_KEY,
-    publicKey: process.env.SECOND_SIGNER_PUBLIC_KEY
-}
+const envs = process.env
 
 StellarSdk.Network.useTestNetwork();
 
 
 /**
+ * Initialize account
+ *
+ * @returns {Object}
+ */
+const initAccount = async () => {
+    try {
+        const primaryAddress = await createAccount('init')
+
+        // Create secondary Account
+        const response = await axios.post(`http://localhost:3001/secondary-account`, {
+            primary_address: primaryAddress
+        })
+
+        const secondaryAddress = response.data.secondary_address
+
+        // Add second signer address to the primary account to support multisignature transactions
+        return setOptionsForMultiSignature(secondaryAddress)
+
+    } catch (err) {
+        console.error(err)
+    }
+}
+
+/**
  * Generate keypair
  *
- * @returns {object} keypair value
+ * @returns {Object} keypair value
  */
 const generateKeyPair = () => {
     const pair = StellarSdk.Keypair.random();
@@ -33,26 +52,49 @@ const generateKeyPair = () => {
  *
  * @return {Promise}
  */
-const createAccount = async () => {
+const createAccount = async (stage='') => {
 
     try {
         const keyPair = generateKeyPair();
         const privateKey = keyPair.secret()
         const publicKey = keyPair.publicKey()
-
         const response = await axios.get(`https://friendbot.stellar.org`, {
             params: {
                 addr: publicKey
             }
         })
 
+        if (stage === 'init') {
+            envs['SENDER_PRIVATE_KEY'] = privateKey
+            envs['SENDER_PUBLIC_KEY'] = publicKey
+
+            console.log('************** Init Account Keys **************')
+        }
+
+        console.log('//---- Private Key ----//')
         console.log(privateKey)
+        console.log('//---- Public Key ----//')
         console.log(publicKey)
 
-        return response.data
+        return publicKey
     } catch (err) {
         console.error(err)
     }
+}
+
+/**
+ * Create receiver account to test payments
+ *
+ * @return {Promise}
+ */
+const createReceiverAccount = async () => {
+
+    console.log('************** Receiver Account **************')
+
+    const primaryAddress = await createAccount();
+
+    // Create user with public address
+    addUser({ primary_address: primaryAddress })
 }
 
 /**
@@ -62,8 +104,16 @@ const createAccount = async () => {
  */
 const getBalanceInfo = async () => {
 
-    return server.loadAccount(senderKeys.publicKey).then(function (account) {
+    return server.loadAccount(envs['SENDER_PUBLIC_KEY']).then(function (account) {
 
+        return account.balances
+    });
+}
+
+const getBalance = async () => {
+
+    return await server.loadAccount(envs['SENDER_PUBLIC_KEY']).then(function (account) {
+        console.log(account.balances)
         return account.balances
     });
 }
@@ -77,7 +127,7 @@ const getBalanceInfo = async () => {
  */
 const sendTransaction = async (receiverPublicKey) => {
 
-    const sourceKeys = StellarSdk.Keypair.fromSecret(senderKeys.privateKey);
+    const sourceKeys = StellarSdk.Keypair.fromSecret(envs['SENDER_PRIVATE_KEY']);
     const destinationId = receiverPublicKey;
 
     let transaction;
@@ -90,7 +140,7 @@ const sendTransaction = async (receiverPublicKey) => {
             .addOperation(StellarSdk.Operation.payment({
                 destination: receiverAcc.public,
                 asset: StellarSdk.Asset.native(),
-                amount: "99.20"
+                amount: "98"
             }))
             .build();
 
@@ -108,21 +158,19 @@ const sendTransaction = async (receiverPublicKey) => {
 /**
  * Send options for multi-signature transactions
  *
+ * @param {String} secondaryAddress - the second signer's public key
+ *
  * @return {String}
  */
-const setOptionsForMultiSignature = async () => {
+const setOptionsForMultiSignature = async (secondaryAddress) => {
 
-    const senderAcc = await server.loadAccount(senderKeys.publicKey)
-    const secondSignerAcc = await server.loadAccount(secondSigner.publicKey)
-
-    console.log(senderAcc)
-    console.log(secondSignerAcc)
+    const senderAcc = await server.loadAccount(envs['SENDER_PUBLIC_KEY'])
 
     // Multi Sig Contract, tell stellar a second address needs to sign on this account
     let transaction = new StellarSdk.TransactionBuilder(senderAcc)
         .addOperation(StellarSdk.Operation.setOptions({
             signer: {
-                ed25519PublicKey: secondSigner.publicKey,
+                ed25519PublicKey: secondaryAddress,
                 weight: 1
             }
         }))
@@ -134,7 +182,7 @@ const setOptionsForMultiSignature = async () => {
         }))
         .build()
 
-    const rootKeypair = StellarSdk.Keypair.fromSecret(senderKeys.privateKey)
+    const rootKeypair = StellarSdk.Keypair.fromSecret(envs['SENDER_PRIVATE_KEY'])
 
     transaction.sign(rootKeypair) // only need to sign with the root signer as the 2nd signer won't be added to the account till after this transaction completes
 
@@ -150,23 +198,19 @@ const setOptionsForMultiSignature = async () => {
 /**
  * Send multisignature transaction
  *
- * @param {String}
+ * @param {String} receiverPublicKey
  *
  * @return {String}
  */
 const sendMultiSignatureTransaction = async (receiverPublicKey) => {
-    const senderAcc = await server.loadAccount(senderKeys.publicKey)
-    const secondSignerAcc = await server.loadAccount(secondSigner.publicKey)
-    const receiverAcc = await server.loadAccount(receiverPublicKey)
-
-    const rootKeypair = StellarSdk.Keypair.fromSecret(senderKeys.privateKey)
-    const secondKeypair = StellarSdk.Keypair.fromSecret(secondSigner.privateKey)
+    const senderAcc = await server.loadAccount(envs['SENDER_PUBLIC_KEY'])
+    const rootKeypair = StellarSdk.Keypair.fromSecret(envs['SENDER_PRIVATE_KEY'])
 
     const transaction = new StellarSdk.TransactionBuilder(senderAcc)
         .addOperation(StellarSdk.Operation.payment({
             destination: receiverPublicKey,
             asset: StellarSdk.Asset.native(),
-            amount: "100" // 1000 XLM
+            amount: '8' // XLM
         }))
         .build()
 
@@ -174,18 +218,22 @@ const sendMultiSignatureTransaction = async (receiverPublicKey) => {
     transaction.sign(rootKeypair)
 
     // Encode: transaction
-    const encoded = transaction
-console.log(JSON.stringify(encoded))
-    // Send
+    const encoded = transaction.toEnvelope().toXDR('base64')
+    console.log(encoded)
+
+    // Send transaction for second signature
     return await axios.post(`http://localhost:3001`, {
-        transaction: JSON.stringify(encoded)
+        transaction: encoded
     })
 }
 
 module.exports = {
+    initAccount,
     generateKeyPair,
     createAccount,
+    createReceiverAccount,
     getBalanceInfo,
+    getBalance,
     sendTransaction,
     setOptionsForMultiSignature,
     sendMultiSignatureTransaction

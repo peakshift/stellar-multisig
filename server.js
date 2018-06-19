@@ -3,6 +3,7 @@ require('dotenv').config();
 const express = require('express')
 const app = express()
 const StellarSdk = require('stellar-sdk');
+const { getSecondaryAddress, createSecondaryAccount } = require('./users')
 
 const server = new StellarSdk.Server('https://horizon-testnet.stellar.org');
 const bodyParser = require('body-parser');
@@ -14,6 +15,33 @@ const secondSigner = {
 
 StellarSdk.Network.useTestNetwork();
 app.use(bodyParser.json()); // support json encoded bodies
+
+app.get('/second-signature/:address', async (req, res, next) => {
+    try {
+        const signature = await getSecondaryAddress(req.params.address)
+
+        res.send(signature);
+    } catch (err) {
+        console.error(err)
+        next(err)
+    }
+})
+
+app.post('/secondary-account', async (req, res, next) => {
+    try {
+        const primaryAddress = req.body.primary_address
+
+        const secondaryAddress = await createSecondaryAccount(primaryAddress)
+
+        res.json({
+            secondary_address: secondaryAddress
+        });
+        next()
+    } catch (err) {
+        console.error(err)
+        next(err)
+    }
+})
 
 app.post('/', async (req, res, next) => {
     try {
@@ -31,7 +59,10 @@ app.post('/', async (req, res, next) => {
         // Sign transaction
         transaction.sign(secondKeypair)
 
-        // console.log(result)
+        // Submit transaction
+        const result = await server.submitTransaction(transaction)
+
+        console.log(result)
         res.send(result)
     } catch (err) {
         console.error(err)
